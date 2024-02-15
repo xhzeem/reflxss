@@ -1,86 +1,88 @@
 package main
 
 import (
+	"fmt"
 	"bufio"
 	"crypto/tls"
-	"fmt"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
+	"runtime"
 	"sync"
 	"time"
+	"flag"
+	"os"
 )
 
-func colorize(text, color string) string {
-	return "\033[38;5;" + color + "m" + text + "\033[0m"
-}
+// THREADS represents the number of goroutines to be spawned for concurrent processing.
+var THREADS int 
+var REFLECT int = 0
 
-func printBanner() {
-
-	bannerFormat := `
-	 ___   ____  ____  _     _     __   __  
-	| |_) | |_  | |_  | |   \ \_/ ( (%s ( (%s
-	|_| \ |_|__ |_|   |_|__ /_/ \ _)_) _)_) 
-
-				@xhzeem | v0.2			
-	`
-	banner := colorize(fmt.Sprintf(bannerFormat, "`","`"), "99")
-
-	// Print to standard error
-	fmt.Fprintln(os.Stderr, banner)
-}
-
+// paramCheck represents a structure for holding URL and parameter information.
 type paramCheck struct {
 	url   string
 	param string
 }
 
-var transport = &http.Transport{
-	TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	DialContext: (&net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: time.Second,
-		DualStack: true,
-	}).DialContext,
-}
-
-var httpClient = &http.Client{
-	Transport: transport,
-}
-
 func main() {
-
+	// Initialize a scanner to read input.
 	var sc *bufio.Scanner
-	var URLsFile string
+
+	// Get information about the standard input.
 	stat, _ := os.Stdin.Stat()
 
+
+	// Define command-line flags.
+	var inputFile string
+	flag.StringVar(&inputFile, "i", "", "Input File Location")
+	
+	outputFile := "/tmp/reflxss-" + time.Now().Format("2006-01-02_15-04-05") + ".txt"
+	flag.StringVar(&outputFile, "o", outputFile, "Output File Location")
+	
+	THREADS = runtime.NumCPU()*5
+	flag.IntVar(&THREADS, "t", THREADS, "Number of Threads")
+
+	flag.Parse()
+
+	printBanner()
+
+	// Initialize the scanner based on the input source.
 	if (stat.Mode() & os.ModeCharDevice) == 0 {
 		sc = bufio.NewScanner(os.Stdin)
-	} else if (len(os.Args) > 1) {
-		URLsFile = os.Args[1]
-		file, err := os.Open(URLsFile)
+	} else if inputFile != "" {
+		InFile, err := os.Open(inputFile)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error opening file: %v\n", err)
 			os.Exit(1)
 		}
-		defer file.Close()
-		sc = bufio.NewScanner(file)
+		defer InFile.Close()
+		sc = bufio.NewScanner(InFile)
 	} else {
 		fmt.Fprintln(os.Stderr, "No data available on standard input or first argument.")
 		os.Exit(1)
 	}
 
-	printBanner()
+	// Open the output file to redirect standard output.
+	OutFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating output file: %v\n", err)
+		os.Exit(1)
+	}
+	defer OutFile.Close()
 
+	fmt.Printf("▶ Output will be saved to: " + colorize(outputFile+"\n", "80"))
+
+	// Configure the HTTP client to handle redirects appropriately.
 	httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
 
-	initialChecks := make(chan paramCheck, 40)
+	// Initialize a channel for initial checks with a buffer size of THREADS.
+	initialChecks := make(chan paramCheck, THREADS)
 
+	// Create a pool of goroutines to perform initial checks concurrently.
 	appendChecks := makePool(initialChecks, func(c paramCheck, output chan paramCheck) {
 		reflected, err := checkReflected(c.url)
 		if err != nil {
@@ -96,6 +98,7 @@ func main() {
 		}
 	})
 
+	// Create a pool of goroutines to perform append checks concurrently.
 	charChecks := makePool(appendChecks, func(c paramCheck, output chan paramCheck) {
 		wasReflected, err := checkAppend(c.url, c.param, "x55hz33m")
 		if err != nil {
@@ -107,9 +110,10 @@ func main() {
 			output <- paramCheck{c.url, c.param}
 		}
 	})
-
+	
+	// Create a pool of goroutines to perform final checks concurrently.
 	done := makePool(charChecks, func(c paramCheck, output chan paramCheck) {
-		output_of_url := []string{c.url, c.param}
+		url_scan := []string{c.url, c.param}
 		for _, char := range []string{"\"", "'", "<", ">"} {
 			wasReflected, err := checkAppend(c.url, c.param, "pf1x"+char+"sf1x")
 			if err != nil {
@@ -118,12 +122,19 @@ func main() {
 			}
 
 			if wasReflected {
-				output_of_url = append(output_of_url, char)
+				url_scan = append(url_scan, char)
 			}
 		}
-		if len(output_of_url) >= 2 {
-			fmt.Printf("\n"+colorize("%s = %v", "214"), output_of_url[1], output_of_url[2:])
-			fmt.Printf("\n"+output_of_url[0]+"\n")
+		if len(url_scan) >= 2 {
+
+			REFLECT++
+
+			fmt.Printf("\n"+colorize("%s = %v", "214"), url_scan[1], url_scan[2:])
+			fmt.Printf("\n"+url_scan[0]+"\n")
+
+			if _, err := fmt.Fprintf(OutFile, "%s = %v @ %s\n", url_scan[1], url_scan[2:], url_scan[0]); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing to file: %v\n", err)
+			}
 		}
 	})
 
@@ -133,6 +144,41 @@ func main() {
 
 	close(initialChecks)
 	<-done
+
+	fmt.Printf("\n▶ Number of Reflected Paramters: " + colorize("%v", "80"), REFLECT)
+
+}
+
+func colorize(text, color string) string {
+	return "\033[38;5;" + color + "m" + text + "\033[0m"
+}
+
+func printBanner() {
+
+	bannerFormat := `
+	 ___   ____  ____  _     _     __   __  
+	| |_) | |_  | |_  | |   \ \_/ ( (%s ( (%s
+	|_| \ |_|__ |_|   |_|__ /_/ \ _)_) _)_) 
+
+				@xhzeem | v0.3				
+	`
+	banner := colorize(fmt.Sprintf(bannerFormat, "`","`"), "99")
+
+	// Print to standard error
+	fmt.Fprintln(os.Stderr, banner)
+}
+
+var transport = &http.Transport{
+	TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	DialContext: (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: time.Second,
+		DualStack: true,
+	}).DialContext,
+}
+
+var httpClient = &http.Client{
+	Transport: transport,
 }
 
 func checkReflected(targetURL string) ([]string, error) {
@@ -203,7 +249,10 @@ func checkAppend(targetURL, param, suffix string) (bool, error) {
 	val := qs.Get(param)
 
 	qs.Set(param, val+suffix)
-	u.RawQuery, err = url.QueryUnescape(qs.Encode())
+	
+	// Decoded Injection payload
+	//	u.RawQuery, err = url.QueryUnescape(qs.Encode())
+	u.RawQuery = qs.Encode()
 
 	reflected, err := checkReflected(u.String())
 	if err != nil {
@@ -225,7 +274,7 @@ func makePool(input chan paramCheck, fn workerFunc) chan paramCheck {
 	var wg sync.WaitGroup
 
 	output := make(chan paramCheck)
-	for i := 0; i < 40; i++ {
+	for i := 0; i < THREADS; i++ {
 		wg.Add(1)
 		go func() {
 			for c := range input {
