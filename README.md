@@ -10,13 +10,12 @@ go install github.com/xhzeem/reflxss@latest
 ## Usage
 
 Effortlessly scan for reflected XSS vulnerabilities in a list of URLs.
-```bash
-# Supply a file as the first argument
-reflxss urls.txt
-
-# Alternatively, pipe URLs through stdin
-cat urls.txt | reflxss
+## Flags
+```python
+  -i *str   Input File Location
+  -o *str   Output File Location
+  -t *int   Number of Threads
 ```
 
-<img width="837" alt="Screenshot 2024-01-21 at 6 41 49 PM" src="https://github.com/xhzeem/hxss/assets/34074156/99bc379b-04f4-487c-83da-30bfe62be3ba">
+<img width="537" alt="Screenshot 2024-02-15 at 11 08 49 AM" src="https://github.com/xhzeem/reflxss/assets/34074156/7a95e8e9-6ff7-4770-bb78-da733f7b4bf3">
 
