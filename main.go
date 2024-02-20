@@ -130,7 +130,7 @@ func main() {
 			REFLECT++
 
 			fmt.Printf("\n"+colorize("%s = %v", "214"), url_scan[1], url_scan[2:])
-			fmt.Printf("\n"+url_scan[0]+"\n")
+			fmt.Printf("\n%s\n",url_scan[0])
 
 			if _, err := fmt.Fprintf(OutFile, "%s = %v @ %s\n", url_scan[1], url_scan[2:], url_scan[0]); err != nil {
 				fmt.Fprintf(os.Stderr, "Error writing to file: %v\n", err)
@@ -160,7 +160,7 @@ func printBanner() {
 	| |_) | |_  | |_  | |   \ \_/ ( (%s ( (%s
 	|_| \ |_|__ |_|   |_|__ /_/ \ _)_) _)_) 
 
-				@xhzeem | v0.3				
+				@xhzeem | v0.4				
 	`
 	banner := colorize(fmt.Sprintf(bannerFormat, "`","`"), "99")
 
@@ -251,7 +251,7 @@ func checkAppend(targetURL, param, suffix string) (bool, error) {
 	qs.Set(param, val+suffix)
 	
 	// Decoded Injection payload
-	//	u.RawQuery, err = url.QueryUnescape(qs.Encode())
+	// u.RawQuery, err = url.QueryUnescape(qs.Encode())
 	u.RawQuery = qs.Encode()
 
 	reflected, err := checkReflected(u.String())
