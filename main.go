@@ -145,7 +145,7 @@ func main() {
 	close(initialChecks)
 	<-done
 
-	fmt.Printf("\n▶ Number of Reflected Paramters: " + colorize("%v", "80"), REFLECT)
+	fmt.Printf("\n▶ Number of Reflected Paramters: " + colorize("%v", "80") + "\n", REFLECT)
 
 }
 
