@@ -1,4 +1,4 @@
-module main
+module github.com/xhzeem/reflxss
 
 go 1.20
 
