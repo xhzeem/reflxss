@@ -14,11 +14,13 @@ import (
 	"time"
 	"flag"
 	"os"
+	"context"
+    "github.com/chromedp/chromedp"
 )
 
-// THREADS represents the number of goroutines to be spawned for concurrent processing.
 var THREADS int 
 var REFLECT int = 0
+var DOMdelay int
 var userAgent string
 
 // paramCheck represents a structure for holding URL and parameter information.
@@ -44,8 +46,14 @@ func main() {
 
 	userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 12_2_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36"
 	flag.StringVar(&userAgent, "ua", userAgent, "User Agent Header")
+
+	var checkDOM bool
+	flag.BoolVar(&checkDOM, "dom", false, "Check the DOM response instead")	
+
+	DOMdelay = 0
+	flag.IntVar(&DOMdelay, "delay", DOMdelay, "Seconds to wait before fetching the DOM")
 	
-	THREADS = runtime.NumCPU()*5
+	THREADS = runtime.NumCPU() * 5
 	flag.IntVar(&THREADS, "t", THREADS, "Number of Threads")
 
 	flag.Parse()
@@ -88,9 +96,21 @@ func main() {
 
 	// Create a pool of goroutines to perform initial checks concurrently.
 	appendChecks := makePool(initialChecks, func(c paramCheck, output chan paramCheck) {
-		reflected, err := checkReflected(c.url)
+		
+		// reflected, err := checkReflected(c.url)
+		// if err != nil {
+		// 	return
+		// }
+
+		var reflected []string
+		
+		targetURL, err := url.Parse(c.url)
 		if err != nil {
 			return
+		}
+
+		for key := range targetURL.Query() {
+			reflected = append(reflected, key)
 		}
 
 		if len(reflected) == 0 {
@@ -104,7 +124,18 @@ func main() {
 
 	// Create a pool of goroutines to perform append checks concurrently.
 	charChecks := makePool(appendChecks, func(c paramCheck, output chan paramCheck) {
-		wasReflected, err := checkAppend(c.url, c.param, "x55hz33m")
+
+		var wasReflected bool
+
+		if checkDOM {
+			// Use the chromedp based DOM check
+			wasReflected, err = checkDOMResponse(c.url, c.param, "xhz33m")
+		} else {
+			// Use the existing HTTP check
+			wasReflected, err = checkAppend(c.url, c.param, "xhz33m")
+		}
+
+		// Handling reflection check
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "\nERR %s on PARAM: %s\n", c.url, c.param)
 			return
@@ -114,14 +145,25 @@ func main() {
 			output <- paramCheck{c.url, c.param}
 		}
 	})
+
 	
 	// Create a pool of goroutines to perform final checks concurrently.
 	done := makePool(charChecks, func(c paramCheck, output chan paramCheck) {
+
 		url_scan := c.url
 		url_param := c.param
 		ref_chars := []string{}
 		for _, char := range []string{"\"", "'", "<", ">"} {
-			wasReflected, err := checkAppend(c.url, c.param, "pf1x"+char+"sf1x")
+			var wasReflected bool
+
+			if checkDOM {
+				// Use the chromedp based DOM check
+				wasReflected, err = checkDOMResponse(c.url, c.param, "pf1x"+char+"sf1x")
+			} else {
+				// Use the existing HTTP check
+				wasReflected, err = checkAppend(c.url, c.param, "pf1x"+char+"sf1x")
+			}
+
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "\nERR on [%s=%s] @ %s\n", c.url, c.param, char)
 				continue
@@ -134,8 +176,7 @@ func main() {
 		if len(ref_chars) > 0 {
 			REFLECT++
 			
-			fmt.Printf("\n"+colorize("%s = %v", "214"), url_param, ref_chars)
-			fmt.Printf("\n%s\n",url_scan)
+			fmt.Printf("\n" + colorize("%s = %v", "214") + "\n%s\n", url_param, ref_chars, url_scan)
 
 			if _, err := fmt.Fprintf(OutFile, "%s = %v @ %s\n", url_param, ref_chars, url_scan); err != nil {
 				fmt.Fprintf(os.Stderr, "Error writing to file: %v\n", err)
@@ -182,15 +223,69 @@ var transport = &http.Transport{
 		// 	Host:   "127.0.0.1:8080",
 		// }),
 
-		Timeout:   30 * time.Second,
+		Timeout:   15 * time.Second,
 		KeepAlive: time.Second,
 		DualStack: true,
+		
 	}).DialContext,
 }
 
 var httpClient = &http.Client{
 	Transport: transport,
 }
+
+func checkDOMResponse(targetURL, param string, suffix string) (bool, error) {
+	
+	parsedURL, err := url.Parse(targetURL)
+	if err != nil {
+		return false, err
+	}
+
+	qs := parsedURL.Query()
+	val := qs.Get(param)
+
+	qs.Set(param, val+suffix)
+	parsedURL.RawQuery = qs.Encode()
+
+	// Create an allocator context for chromedp to use our custom options
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("proxy-server","http://127.0.0.1:8080"),
+		chromedp.UserAgent(userAgent),
+	)
+
+	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer cancel()
+
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(allocCtx, time.Duration(DOMdelay+15) * time.Second)
+	defer cancel()
+
+    // Now create a chromedp context
+    chromedpCtx, chromedpCancel := chromedp.NewContext(ctx)
+    defer chromedpCancel()
+
+	// Navigate to the URL and wait if necessary before extracting the entire DOM
+	var body string
+	tasks := chromedp.Tasks{
+		chromedp.Navigate(parsedURL.String()),
+	}
+
+	if DOMdelay > 0 {
+		tasks = append(tasks, chromedp.Sleep(time.Duration(DOMdelay) * time.Second))
+	}
+	tasks = append(tasks, chromedp.OuterHTML("html", &body, chromedp.ByQuery))
+
+	err = chromedp.Run(chromedpCtx, tasks)
+	if err != nil {
+		return false, err
+	}
+
+	// Check if the parameter value is reflected in the DOM
+	reflected := strings.Contains(body, suffix)
+
+	return reflected, nil
+}
+
 
 func checkReflected(targetURL string) ([]string, error) {
 
@@ -238,7 +333,6 @@ func checkReflected(targetURL string) ([]string, error) {
 			if !strings.Contains(string(body), v) {
 				continue
 			}
-
 			out = append(out, key)
 		}
 	}
