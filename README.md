@@ -14,6 +14,7 @@ Effortlessly scan for reflected XSS vulnerabilities in a list of URLs.
 ```python
   -i *str   Input File Location
   -o *str   Output File Location
+  -ua *str  User-Agent Header
   -t *int   Number of Threads
 ```
 
