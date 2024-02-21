@@ -113,7 +113,9 @@ func main() {
 	
 	// Create a pool of goroutines to perform final checks concurrently.
 	done := makePool(charChecks, func(c paramCheck, output chan paramCheck) {
-		url_scan := []string{c.url, c.param}
+		url_scan := c.url
+		url_param := c.param
+		ref_chars := []string{}
 		for _, char := range []string{"\"", "'", "<", ">"} {
 			wasReflected, err := checkAppend(c.url, c.param, "pf1x"+char+"sf1x")
 			if err != nil {
@@ -122,17 +124,16 @@ func main() {
 			}
 
 			if wasReflected {
-				url_scan = append(url_scan, char)
+				ref_chars = append(ref_chars, char)
 			}
 		}
-		if len(url_scan) >= 2 {
-
+		if len(ref_chars) > 0 {
 			REFLECT++
+			
+			fmt.Printf("\n"+colorize("%s = %v", "214"), url_param, ref_chars)
+			fmt.Printf("\n%s\n",url_scan)
 
-			fmt.Printf("\n"+colorize("%s = %v", "214"), url_scan[1], url_scan[2:])
-			fmt.Printf("\n%s\n",url_scan[0])
-
-			if _, err := fmt.Fprintf(OutFile, "%s = %v @ %s\n", url_scan[1], url_scan[2:], url_scan[0]); err != nil {
+			if _, err := fmt.Fprintf(OutFile, "%s = %v @ %s\n", url_param, ref_chars, url_scan); err != nil {
 				fmt.Fprintf(os.Stderr, "Error writing to file: %v\n", err)
 			}
 		}
@@ -171,6 +172,12 @@ func printBanner() {
 var transport = &http.Transport{
 	TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	DialContext: (&net.Dialer{
+
+		// Proxy: http.ProxyURL(&url.URL{
+		// 	Scheme: "http", 
+		// 	Host:   "127.0.0.1:8080",
+		// }),
+
 		Timeout:   30 * time.Second,
 		KeepAlive: time.Second,
 		DualStack: true,
@@ -190,7 +197,6 @@ func checkReflected(targetURL string) ([]string, error) {
 		return out, err
 	}
 
-	// temporary. Needs to be an option
 	req.Header.Add("User-Agent", "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.100 Safari/537.36")
 
 	resp, err := httpClient.Do(req)
@@ -203,23 +209,21 @@ func checkReflected(targetURL string) ([]string, error) {
 	defer resp.Body.Close()
 
 	// always read the full body so we can re-use the tcp connection
-	b, err := ioutil.ReadAll(resp.Body)
+	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return out, err
 	}
 
-	// nope (:
+	// Check if the response is redirect 
 	if strings.HasPrefix(resp.Status, "3") {
 		return out, nil
 	}
 
-	// also nope
+	// Confirm the MiME response is HTML
 	ct := resp.Header.Get("Content-Type")
 	if ct != "" && !strings.Contains(ct, "html") {
 		return out, nil
 	}
-
-	body := string(b)
 
 	u, err := url.Parse(targetURL)
 	if err != nil {
@@ -228,7 +232,7 @@ func checkReflected(targetURL string) ([]string, error) {
 
 	for key, vv := range u.Query() {
 		for _, v := range vv {
-			if !strings.Contains(body, v) {
+			if !strings.Contains(string(body), v) {
 				continue
 			}
 
