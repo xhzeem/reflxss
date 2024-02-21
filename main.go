@@ -19,6 +19,7 @@ import (
 // THREADS represents the number of goroutines to be spawned for concurrent processing.
 var THREADS int 
 var REFLECT int = 0
+var userAgent string
 
 // paramCheck represents a structure for holding URL and parameter information.
 type paramCheck struct {
@@ -40,6 +41,9 @@ func main() {
 	
 	outputFile := "/tmp/reflxss-" + time.Now().Format("2006-01-02_15-04-05") + ".txt"
 	flag.StringVar(&outputFile, "o", outputFile, "Output File Location")
+
+	userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 12_2_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36"
+	flag.StringVar(&userAgent, "ua", userAgent, "User Agent Header")
 	
 	THREADS = runtime.NumCPU()*5
 	flag.IntVar(&THREADS, "t", THREADS, "Number of Threads")
@@ -197,7 +201,7 @@ func checkReflected(targetURL string) ([]string, error) {
 		return out, err
 	}
 
-	req.Header.Add("User-Agent", "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.100 Safari/537.36")
+	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -208,7 +212,6 @@ func checkReflected(targetURL string) ([]string, error) {
 	}
 	defer resp.Body.Close()
 
-	// always read the full body so we can re-use the tcp connection
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return out, err
