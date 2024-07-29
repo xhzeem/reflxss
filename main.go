@@ -22,6 +22,7 @@ var THREADS int
 var REFLECT int = 0
 var DOMdelay int
 var userAgent string
+var verbose bool
 
 // paramCheck represents a structure for holding URL and parameter information.
 type paramCheck struct {
@@ -55,6 +56,8 @@ func main() {
 	
 	THREADS = runtime.NumCPU() * 5
 	flag.IntVar(&THREADS, "t", THREADS, "Number of Threads")
+
+	flag.BoolVar(&verbose, "v", false, "Verbose output")
 
 	flag.Parse()
 
@@ -137,7 +140,9 @@ func main() {
 
 		// Handling reflection check
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "\nERR %s on PARAM: %s\n", c.url, c.param)
+			if verbose {
+				fmt.Fprintf(os.Stderr, "\nERR %s on PARAM: %s\n", c.url, c.param)
+			}
 			return
 		}
 
